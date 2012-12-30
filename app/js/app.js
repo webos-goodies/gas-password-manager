@@ -57,8 +57,8 @@ goog.scope(function() {
     var cipherText = cipher.encrypt(plainText, iv);
 
     return {
-      data: '"' + goog.crypt.byteArrayToHex(cipherText) + '"',
-      iv:   '"' + goog.crypt.byteArrayToHex(iv) + '"'
+      data: goog.crypt.byteArrayToHex(cipherText),
+      iv:   goog.crypt.byteArrayToHex(iv)
     };
   };
 
@@ -68,8 +68,8 @@ goog.scope(function() {
    * @param {string} iv Initial vector.
    */
   _.prototype.decrypt = function(str, iv) {
-    str = goog.crypt.hexToByteArray(str.replace(/\"/g, ''));
-    iv  = goog.crypt.hexToByteArray(iv.replace(/\"/g, ''));
+    str = goog.crypt.hexToByteArray(str);
+    iv  = goog.crypt.hexToByteArray(iv);
 
     var cipher    = new goog.crypt.Cbc(new goog.crypt.Aes(this.encryptionKey_));
     var plainText = cipher.decrypt(str, iv);

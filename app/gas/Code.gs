@@ -15,8 +15,12 @@ function search(term) {
   var result = [];
   for(var i = 0, l = data.length ; i < l ; i++) {
     var row = data[i];
-    if((row[0] || '').indexOf(term) >= 0 || (row[1] || '').indexOf(term) >= 0) {
-      result.push(row);
+    if((''+row[0]).indexOf(term) >= 0 || (''+row[1]).indexOf(term) >= 0) {
+      var r = [];
+      for(var ii = 0, ll = row.length ; ii < ll ; ii++) {
+        r[ii] = (''+row[ii]).replace(/^"|"$/g, '');
+      }
+      result.push(r);
     }
   }
   return Utilities.jsonStringify(result);
@@ -24,7 +28,11 @@ function search(term) {
 
 function postData(data) {
   var sheet = getTargetSheet(true);
-  sheet.appendRow(data);
+  var row   = [];
+  for(var i = 0, l = data.length ; i < l ; i++) {
+    row[i] = '"' + data[i] + '"';
+  }
+  sheet.appendRow(row);
 }
 
 function getTargetSheet(createIfNeeded) {
