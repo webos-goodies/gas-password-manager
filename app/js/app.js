@@ -1,14 +1,33 @@
 goog.provide('gaspass.App');
 goog.require('goog.array');
 goog.require('goog.crypt');
-goog.require('goog.crypt.Sha256');
 goog.require('goog.crypt.Aes');
 goog.require('goog.crypt.Cbc');
+goog.require('goog.crypt.pbkdf2');
 goog.require('goog.dom');
 goog.require('goog.dom.classes');
+goog.require('goog.dom.dataset');
 goog.require('goog.dom.forms');
 goog.require('goog.events.EventType');
 goog.require('goog.events.EventHandler');
+
+/**
+ * XOR two byte arrays. (optimized)
+ * @param {!Array.<number>} bytes1 Byte array 1.
+ * @param {!Array.<number>} bytes2 Byte array 2.
+ * @return {!Array.<number>} Resulting XOR of the two byte arrays.
+ */
+goog.crypt.xorByteArray = function(bytes1, bytes2) {
+  goog.asserts.assert(
+      bytes1.length == bytes2.length,
+      'XOR array lengths must match');
+
+  var result = [];
+  for (var i = 0, l = bytes1.length ; i < l ; i++) {
+    result[i] = bytes1[i] ^ bytes2[i];
+  }
+  return result;
+};
 
 /**
  * An application class for GAS Password Manager.
@@ -17,11 +36,25 @@ goog.require('goog.events.EventHandler');
 gaspass.App = function() {
 
   /**
-   * An encryption key.
+   * Shared encryption key.
    * @type {Array.<number>}
    * @private
    */
-  this.encryptionKey_ = '';
+  this.sharedKey_ = '';
+
+  /**
+   * Salt for shared encryption key.
+   * @type {Array.<number>}
+   * @private
+   */
+  this.sharedSalt_ = goog.crypt.hexToByteArray(window['sharedSalt']);
+
+  /**
+   * Master password.
+   * @type {Array.<number>}
+   * @private
+   */
+  this.password_ = '';
 
   /**
    * Event handler management.
@@ -34,11 +67,21 @@ gaspass.App = function() {
   this.eh_.listen(goog.dom.getElement('pass'),      goog.events.EventType.SUBMIT, this.onPass_);
   this.eh_.listen(goog.dom.getElement('search'),    goog.events.EventType.SUBMIT, this.onSearch_);
   this.eh_.listen(goog.dom.getElement('post-form'), goog.events.EventType.SUBMIT, this.onPost_);
-  this.eh_.listen(goog.dom.getElement('result'),    goog.events.EventType.CLICK,  this.onShow_);
+  this.eh_.listen(goog.dom.getElement('result'),    goog.events.EventType.CLICK,  this.onOps_);
 };
 
 goog.scope(function() {
   var _ = gaspass.App;
+
+  /**
+   * Derives encryption key from password.
+   * @param {Array.<number>} salt
+   * @return {Array.<number>} Encryption key.
+   */
+  _.prototype.getEncryptionKey = function(salt) {
+    return goog.array.zip(
+        goog.crypt.pbkdf2.deriveKeySha1(this.password_, salt, 5000, 128), this.sharedKey_);
+  };
 
   /**
    * Encrypt string
@@ -53,7 +96,8 @@ goog.scope(function() {
     var plainText  = goog.crypt.stringToUtf8ByteArray(str);
     plainText.push(0);
 
-    var cipher     = new goog.crypt.Cbc(new goog.crypt.Aes(this.encryptionKey_));
+    var key        = this.getEncryptionKey(iv);
+    var cipher     = new goog.crypt.Cbc(new goog.crypt.Aes(key));
     var cipherText = cipher.encrypt(plainText, iv);
 
     return {
@@ -71,7 +115,8 @@ goog.scope(function() {
     str = goog.crypt.hexToByteArray(str);
     iv  = goog.crypt.hexToByteArray(iv);
 
-    var cipher    = new goog.crypt.Cbc(new goog.crypt.Aes(this.encryptionKey_));
+    var key       = this.getEncryptionKey(iv);
+    var cipher    = new goog.crypt.Cbc(new goog.crypt.Aes(key));
     var plainText = cipher.decrypt(str, iv);
     var length    = plainText.indexOf(0);
     if(length >= 0) {
@@ -89,10 +134,9 @@ goog.scope(function() {
   _.prototype.onPass_ = function(e) {
     e.preventDefault();
     var formData = goog.dom.forms.getFormDataMap(e.target).toObject();
-    var hash     = new goog.crypt.Sha256();
-    hash.update(formData['text'][0]);
-    this.encryptionKey_ = hash.digest();
     goog.dom.getElement('pass').style.display = 'none';
+    this.password_  = goog.crypt.stringToByteArray(formData['text'][0]);
+    this.sharedKey_ = goog.crypt.pbkdf2.deriveKeySha1(this.password_, this.sharedSalt_, 1000, 128);
   };
 
   /**
@@ -119,13 +163,16 @@ goog.scope(function() {
     resultEl = resultEl.getElementsByTagName('tbody')[0];
     goog.dom.removeChildren(resultEl);
     goog.array.forEach(JSON.parse(result), function(row) {
-      var password = this.decrypt(row[2]||'', row[3]||'');
       var el = goog.dom.createDom(
         'tr', null,
         goog.dom.createDom('td', null, row[0]),
         goog.dom.createDom('td', null, row[1]),
-        goog.dom.createDom('td', null, goog.dom.createDom('input', {'value':password})),
-        goog.dom.createDom('td', 'show'));
+        goog.dom.createDom('td', null, goog.dom.createDom('input')),
+        goog.dom.createDom('td', 'ops',
+          goog.dom.createDom('a', {'href':'#', 'class':'lock' }),
+          goog.dom.createDom('a', {'href':'#', 'class':'show' })));
+      goog.dom.dataset.set(el, 'password', row[2]||'');
+      goog.dom.dataset.set(el, 'iv',       row[3]||'');
       resultEl.appendChild(el);
     }, this);
   };
@@ -163,9 +210,30 @@ goog.scope(function() {
    * @param {goog.events.Event} e An event object.
    * @private
    */
-  _.prototype.onShow_ = function(e) {
-    var rowEl = e.target.parentNode;
-    goog.dom.classes.toggle(rowEl, 'shown');
+  _.prototype.onOps_ = function(e) {
+    var rowEl = goog.dom.getAncestorByTagNameAndClass(e.target, 'tr');
+    if(e.target.nodeName.toLowerCase() != 'a' || !rowEl) {
+      return;
+    }
+    e.preventDefault();
+
+    if(goog.dom.classes.has(e.target, 'show')) {
+
+      if(goog.dom.classes.has(rowEl, 'unlocked')) {
+        goog.dom.classes.toggle(rowEl, 'shown');
+      }
+
+    } else if(goog.dom.classes.has(e.target, 'lock')) {
+
+      var password = goog.dom.dataset.get(rowEl, 'password');
+      var iv       = goog.dom.dataset.get(rowEl, 'iv');
+      var inputEl  = rowEl.getElementsByTagName('input')[0];
+      inputEl.value = this.decrypt(password, iv);
+
+      goog.dom.classes.addRemove(e.target, 'lock', 'unlock');
+      goog.dom.classes.add(rowEl, 'unlocked');
+
+    }
   };
 
 });
