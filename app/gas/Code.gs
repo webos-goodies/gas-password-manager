@@ -1,8 +1,20 @@
 var SPREADSHEET_FILENAME    = 'GAS Password Manager';
 var PROPNAME_SPREADSHEET_ID = 'gas_password_manager_spreadsheet_id';
+var PROPNAME_SALT           = 'gas_password_manager_salt';
 
 function doGet() {
-  var tpl = HtmlService.createTemplateFromFile('index.html');
+  var tpl  = HtmlService.createTemplateFromFile('index.html');
+  var salt = UserProperties.getProperty(PROPNAME_SALT);
+  if(!salt) {
+    salt = '';
+    for(var i = 0 ; i < 32 ; i++) {
+      var v = ((Math.random() * 512) & 0xff).toString(16);
+      while(v.length < 2) { v = '0' + v; }
+      salt += v.substr(0, 2);
+    }
+    UserProperties.setProperty(PROPNAME_SALT, salt);
+  }
+  tpl.salt = salt;
   return tpl.evaluate();
 }
 
