@@ -3,6 +3,8 @@ goog.require('goog.array');
 goog.require('goog.crypt');
 goog.require('goog.crypt.Aes');
 goog.require('goog.crypt.Cbc');
+goog.require('goog.crypt.Hmac');
+goog.require('goog.crypt.Sha256');
 goog.require('goog.crypt.pbkdf2');
 goog.require('goog.dom');
 goog.require('goog.dom.classes');
@@ -79,8 +81,10 @@ goog.scope(function() {
    * @return {Array.<number>} Encryption key.
    */
   _.prototype.getEncryptionKey = function(salt) {
-    return goog.array.zip(
-        goog.crypt.pbkdf2.deriveKeySha1(this.password_, salt, 5000, 128), this.sharedKey_);
+    var hmac = new goog.crypt.Hmac(new goog.crypt.Sha256(), this.password_, 64);
+    hmac.update(goog.crypt.pbkdf2.deriveKeySha1(this.password_, salt, 5000, 128));
+    hmac.update(this.sharedKey_);
+    return hmac.digest();
   };
 
   /**
